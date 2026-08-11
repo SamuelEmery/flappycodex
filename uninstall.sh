@@ -39,6 +39,13 @@ done
 
 command -v python3 >/dev/null 2>&1 || die "Python 3 is required to uninstall"
 
+is_our_shim() {
+    local candidate="$1"
+    [ "${candidate##*/}" = "codex" ] && \
+        [ -f "$candidate" ] && \
+        grep -Fq 'FLAPPY_CODEX_SHIM = 1' "$candidate"
+}
+
 saved_shim=""
 if [ -r "$config_file" ]; then
     saved_shim="$(
@@ -57,7 +64,7 @@ if [ -n "$saved_shim" ]; then
 fi
 
 for candidate in "${candidates[@]}"; do
-    if [ -f "$candidate" ] && grep -q 'FLAPPY_CODEX_SHIM = 1' "$candidate"; then
+    if is_our_shim "$candidate"; then
         rm -f -- "$candidate"
     fi
 done
@@ -67,10 +74,55 @@ remove_managed_path_block() {
     [ -f "$rc" ] || return 0
     python3 - "$rc" <<'PY'
 from pathlib import Path
+import os
+import shutil
+import stat
 import sys
+import tempfile
 
-path = Path(sys.argv[1])
-original = path.read_text(encoding="utf-8")
+requested_path = Path(sys.argv[1])
+path = requested_path.resolve() if requested_path.is_symlink() else requested_path
+
+
+def read_text(source):
+    return source.read_text(encoding="utf-8", errors="surrogateescape")
+
+
+def atomic_write(destination, contents):
+    mode = stat.S_IMODE(destination.stat().st_mode) if destination.exists() else 0o600
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.flappycodex-", dir=destination.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(
+            descriptor, "w", encoding="utf-8", errors="surrogateescape"
+        ) as handle:
+            handle.write(contents)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, mode)
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def create_backup(source, destination):
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.temporary-", dir=destination.parent
+    )
+    os.close(descriptor)
+    temporary = Path(temporary_name)
+    try:
+        shutil.copy2(source, temporary)
+        with temporary.open("rb+") as handle:
+            os.fsync(handle.fileno())
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+original = read_text(path)
 lines = original.splitlines()
 cleaned = []
 changed = False
@@ -100,13 +152,23 @@ while i < len(lines):
     i += 1
 
 updated = "\n".join(cleaned) + ("\n" if cleaned else "")
+backup = path.with_name(path.name + ".flappycodex.bak")
 if changed and updated != original:
-    path.write_text(updated, encoding="utf-8")
+    if not backup.exists():
+        create_backup(path, backup)
+    atomic_write(path, updated)
+
+current = updated if changed else original
+if backup.exists():
+    if current == read_text(backup):
+        backup.unlink()
+    else:
+        print(backup)
 PY
 }
 
-remove_managed_path_block "$HOME/.bashrc"
-remove_managed_path_block "$HOME/.zshrc"
+bash_backup="$(remove_managed_path_block "$HOME/.bashrc")"
+zsh_backup="$(remove_managed_path_block "$HOME/.zshrc")"
 
 rm -f -- "$config_file" "$installed_script"
 if ! $keep_score; then
@@ -120,3 +182,8 @@ printf 'Flappy Codex removed. Your original Codex installation was not changed.\
 if $keep_score; then
     printf 'Saved best score kept at %s.\n' "$score_file"
 fi
+for backup in "$bash_backup" "$zsh_backup"; do
+    if [ -n "$backup" ]; then
+        printf 'Shell backup retained because your config changed: %s\n' "$backup"
+    fi
+done

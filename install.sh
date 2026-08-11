@@ -18,7 +18,10 @@ die() {
 }
 
 is_our_shim() {
-    [ -f "$1" ] && grep -q 'FLAPPY_CODEX_SHIM = 1' "$1"
+    local candidate="$1"
+    [ "${candidate##*/}" = "codex" ] && \
+        [ -f "$candidate" ] && \
+        grep -Fq 'FLAPPY_CODEX_SHIM = 1' "$candidate"
 }
 
 saved_original() {
@@ -61,12 +64,63 @@ configure_path() {
     esac
     python3 - "$rc" "$bin_dir" <<'PY'
 from pathlib import Path
+import os
 import shlex
+import shutil
+import stat
 import sys
+import tempfile
 
-path = Path(sys.argv[1])
+requested_path = Path(sys.argv[1])
+path = requested_path.resolve() if requested_path.is_symlink() else requested_path
 bin_dir = sys.argv[2]
-lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+
+
+def read_text(source):
+    return source.read_text(encoding="utf-8", errors="surrogateescape")
+
+
+def atomic_write(destination, contents):
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    mode = stat.S_IMODE(destination.stat().st_mode) if destination.exists() else 0o600
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.flappycodex-", dir=destination.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(
+            descriptor, "w", encoding="utf-8", errors="surrogateescape"
+        ) as handle:
+            handle.write(contents)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, mode)
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def create_backup(source, destination):
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.temporary-", dir=destination.parent
+    )
+    os.close(descriptor)
+    temporary = Path(temporary_name)
+    try:
+        shutil.copy2(source, temporary)
+        with temporary.open("rb+") as handle:
+            os.fsync(handle.fileno())
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+path.parent.mkdir(parents=True, exist_ok=True)
+backup = path.with_name(path.name + ".flappycodex.bak")
+if path.exists() and not backup.exists():
+    create_backup(path, backup)
+
+lines = read_text(path).splitlines() if path.exists() else []
 cleaned = []
 i = 0
 while i < len(lines):
@@ -101,8 +155,7 @@ cleaned.extend(
         "# <<< Flappy Codex PATH <<<",
     ]
 )
-path.parent.mkdir(parents=True, exist_ok=True)
-path.write_text("\n".join(cleaned) + "\n", encoding="utf-8")
+atomic_write(path, "\n".join(cleaned) + "\n")
 PY
 }
 

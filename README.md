@@ -72,6 +72,36 @@ add manually. XDG paths and install locations can be overridden with
 `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `FLAPPY_CODEX_HOME`, and
 `FLAPPY_CODEX_BIN_DIR`.
 
+Shell configuration updates are written atomically, preserve the file's
+permissions, and follow symlink-managed dotfiles without replacing the symlink.
+Before changing an existing file for the first time, the installer creates a
+sibling backup such as `.bashrc.flappycodex.bak`. A clean uninstall removes that
+backup when the restored configuration matches it; if the user has made other
+changes, the backup is retained and its location is printed.
+
+## Trust and safety
+
+Flappy Codex intentionally places a launcher named `codex` earlier on `PATH`,
+which deserves scrutiny. The addon's complete review surface is the small
+[launcher](flappycodex.py), [installer](install.sh), and
+[uninstaller](uninstall.sh), all available to inspect before running anything.
+
+- Plain `codex` uses `execv` to replace the launcher with the next real Codex
+  executable on `PATH`; it does not proxy the session.
+- The addon itself makes no network requests and contains no telemetry or
+  third-party runtime dependencies.
+- It never reads the Codex pane, prompt text, hook payloads, API keys, or
+  standard input intended for Codex.
+- Lifecycle hooks and tmux settings exist only for the current `--flappy`
+  session. No persistent Codex configuration or global key binding is added.
+- Runtime files and the local state socket live in a private, randomly named
+  temporary directory that is removed when the session ends.
+- Uninstall only deletes a launcher named exactly `codex` after verifying the
+  Flappy Codex marker.
+
+Security concerns should be reported privately as described in
+[SECURITY.md](SECURITY.md).
+
 ## How it works
 
 `--flappy` creates an isolated tmux game pane and runs the original Codex in the

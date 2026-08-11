@@ -60,6 +60,7 @@ class InstallationTests(unittest.TestCase):
     def install(self):
         bashrc = self.home / ".bashrc"
         bashrc.write_text("export PATH=/opt/tools:$PATH\n", encoding="utf-8")
+        bashrc.chmod(0o640)
         self.run_script("install.sh")
         return bashrc
 
@@ -69,11 +70,16 @@ class InstallationTests(unittest.TestCase):
         config_file = self.config_home / "flappycodex" / "config.json"
         score_file = config_file.with_name("best-score.json")
         installed_script = self.data_home / "flappycodex" / "flappycodex.py"
+        shell_backup = bashrc.with_name(".bashrc.flappycodex.bak")
 
         configuration = json.loads(config_file.read_text(encoding="utf-8"))
         self.assertEqual(configuration["shim"], str(shim.resolve()))
         self.assertTrue(shim.is_file())
         self.assertTrue(installed_script.is_file())
+        self.assertEqual(
+            shell_backup.read_text(encoding="utf-8"), "export PATH=/opt/tools:$PATH\n"
+        )
+        self.assertEqual(bashrc.stat().st_mode & 0o777, 0o640)
         self.assertIn("# >>> Flappy Codex PATH >>>", bashrc.read_text(encoding="utf-8"))
         score_file.write_text('{"best": 12}\n', encoding="utf-8")
 
@@ -85,6 +91,8 @@ class InstallationTests(unittest.TestCase):
         self.assertFalse(config_file.exists())
         self.assertFalse(score_file.exists())
         self.assertFalse(installed_script.exists())
+        self.assertFalse(shell_backup.exists())
+        self.assertEqual(bashrc.stat().st_mode & 0o777, 0o640)
         self.assertEqual(
             bashrc.read_text(encoding="utf-8"),
             "export PATH=/opt/tools:$PATH\n",
@@ -119,6 +127,71 @@ class InstallationTests(unittest.TestCase):
         self.assertFalse(old_shim.exists())
         self.assertTrue(new_shim.exists())
         self.assertEqual(configuration["shim"], str(new_shim.resolve()))
+
+    def test_uninstall_retains_backup_when_shell_config_changed(self):
+        bashrc = self.install()
+        with bashrc.open("a", encoding="utf-8") as handle:
+            handle.write("alias after-install='true'\n")
+
+        result = self.run_script("uninstall.sh")
+
+        backup = bashrc.with_name(".bashrc.flappycodex.bak")
+        self.assertTrue(backup.exists())
+        self.assertEqual(
+            backup.read_text(encoding="utf-8"), "export PATH=/opt/tools:$PATH\n"
+        )
+        self.assertIn("Shell backup retained", result.stdout)
+        contents = bashrc.read_text(encoding="utf-8")
+        self.assertNotIn("Flappy Codex PATH", contents)
+        self.assertIn("alias after-install='true'", contents)
+
+    def test_install_and_uninstall_preserve_a_symlinked_shell_config(self):
+        dotfiles = self.home / "dotfiles"
+        dotfiles.mkdir()
+        target = dotfiles / "bashrc"
+        target.write_text("export EDITOR=vim\n", encoding="utf-8")
+        target.chmod(0o640)
+        bashrc = self.home / ".bashrc"
+        bashrc.symlink_to(target)
+
+        self.run_script("install.sh")
+
+        backup = target.with_name("bashrc.flappycodex.bak")
+        self.assertTrue(bashrc.is_symlink())
+        self.assertTrue(backup.exists())
+        self.assertIn("Flappy Codex PATH", target.read_text(encoding="utf-8"))
+        self.assertEqual(target.stat().st_mode & 0o777, 0o640)
+
+        self.run_script("uninstall.sh")
+
+        self.assertTrue(bashrc.is_symlink())
+        self.assertFalse(backup.exists())
+        self.assertEqual(target.read_text(encoding="utf-8"), "export EDITOR=vim\n")
+        self.assertEqual(target.stat().st_mode & 0o777, 0o640)
+
+    def test_marker_file_not_named_codex_is_never_deleted(self):
+        protected = self.root / "keep-me.py"
+        protected.write_text("FLAPPY_CODEX_SHIM = 1\n", encoding="utf-8")
+        config_dir = self.config_home / "flappycodex"
+        config_dir.mkdir(parents=True)
+        config_file = config_dir / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "original_codex": str(self.original_bin / "codex"),
+                    "shim": str(protected),
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        self.install()
+        self.assertTrue(protected.exists())
+
+        config_file.write_text(json.dumps({"shim": str(protected)}), encoding="utf-8")
+        self.run_script("uninstall.sh")
+
+        self.assertTrue(protected.exists())
 
     def test_uninstall_removes_the_legacy_path_block_only(self):
         bashrc = self.home / ".bashrc"
