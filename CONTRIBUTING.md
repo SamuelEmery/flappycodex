@@ -35,6 +35,15 @@ Tests must be non-interactive and isolated from the contributor's real Codex
 configuration. Mock tmux/Codex boundaries or use temporary `HOME` and XDG
 directories, as the existing tests do.
 
+On Linux with tmux installed, the opt-in integration test creates an isolated
+tmux server, drives the generated hooks with a fake Codex executable, and checks
+the rendered lifecycle states and teardown:
+
+```bash
+FLAPPY_CODEX_TMUX_SMOKE=1 TERM=xterm-256color \
+  python3 tests/test_tmux_integration.py -v
+```
+
 ## Pull requests
 
 1. Fork the repository and create a descriptive branch.

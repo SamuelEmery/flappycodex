@@ -24,6 +24,13 @@ is_our_shim() {
         grep -Fq 'FLAPPY_CODEX_SHIM = 1' "$candidate"
 }
 
+destination_conflicts() {
+    local candidate="$1"
+    # Never install through a symlink, even when its target has our marker.
+    [ -L "$candidate" ] || \
+        { [ -e "$candidate" ] && ! is_our_shim "$candidate"; }
+}
+
 saved_original() {
     if [ -r "$config_file" ]; then
         python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["original_codex"])' "$config_file" 2>/dev/null || true
@@ -38,11 +45,14 @@ saved_shim() {
 
 find_original() {
     local current saved
-    current="$(command -v codex 2>/dev/null || true)"
+    # `command -v` may resolve an exported shell function named `codex`.
+    # Search PATH directly and accept only an executable file.
+    current="$(type -P codex 2>/dev/null || true)"
     saved="$(saved_original)"
-    if [ -n "$current" ] && ! is_our_shim "$current"; then
+    if [ -n "$current" ] && [ -f "$current" ] && [ -x "$current" ] && \
+        ! is_our_shim "$current"; then
         printf '%s\n' "$current"
-    elif [ -n "$saved" ] && [ -x "$saved" ]; then
+    elif [ -n "$saved" ] && [ -f "$saved" ] && [ -x "$saved" ]; then
         printf '%s\n' "$saved"
     fi
 }
@@ -62,8 +72,9 @@ configure_path() {
             return
             ;;
     esac
-    python3 - "$rc" "$bin_dir" <<'PY'
+    python3 - "$rc" "$bin_dir" "$config_file" <<'PY'
 from pathlib import Path
+import json
 import os
 import shlex
 import shutil
@@ -74,6 +85,9 @@ import tempfile
 requested_path = Path(sys.argv[1])
 path = requested_path.resolve() if requested_path.is_symlink() else requested_path
 bin_dir = sys.argv[2]
+config_path = Path(sys.argv[3])
+requested_path_existed = requested_path.exists() or requested_path.is_symlink()
+requested_path_key = str(requested_path.absolute())
 
 
 def read_text(source):
@@ -177,6 +191,22 @@ cleaned.extend(
     ]
 )
 atomic_write(path, "\n".join(cleaned) + "\n")
+
+try:
+    configuration = json.loads(read_text(config_path))
+except (OSError, TypeError, json.JSONDecodeError):
+    configuration = {}
+if isinstance(configuration, dict):
+    created = configuration.get("created_shell_configs", [])
+    if not isinstance(created, list) or not all(
+        isinstance(item, str) for item in created
+    ):
+        created = []
+    if not requested_path_existed and requested_path_key not in created:
+        created.append(requested_path_key)
+    if created:
+        configuration["created_shell_configs"] = created
+        atomic_write(config_path, json.dumps(configuration, indent=2) + "\n")
 PY
 }
 
@@ -192,18 +222,21 @@ original="$(find_original)"
 [ -n "$original" ] || die "install the Codex CLI first, then run this installer"
 previous_shim="$(saved_shim)"
 
-if [ -e "$shim" ] && ! is_our_shim "$shim"; then
+if destination_conflicts "$shim"; then
     if [ -n "${FLAPPY_CODEX_BIN_DIR:-}" ]; then
         die "$shim already exists; choose another FLAPPY_CODEX_BIN_DIR"
     fi
     bin_dir="$install_root/bin"
     shim="$bin_dir/codex"
 fi
+if destination_conflicts "$shim"; then
+    die "$shim already exists and is not a Flappy Codex launcher"
+fi
 
 install -d "$install_root" "$bin_dir" "$(dirname "$config_file")"
 install -m 0755 "$project_dir/flappycodex.py" "$installed_script"
 python3 "$installed_script" \
-    --internal-configure "$original" "$config_file" "$shim"
+    --_flappycodex-internal-configure "$original" "$config_file" "$shim"
 install -m 0755 "$installed_script" "$shim"
 if [ -n "$previous_shim" ] && [ "$previous_shim" != "$shim" ] && \
     is_our_shim "$previous_shim"; then

@@ -72,8 +72,9 @@ done
 remove_managed_path_block() {
     local rc="$1"
     [ -f "$rc" ] || return 0
-    python3 - "$rc" <<'PY'
+    python3 - "$rc" "$config_file" <<'PY'
 from pathlib import Path
+import json
 import os
 import shutil
 import stat
@@ -82,6 +83,22 @@ import tempfile
 
 requested_path = Path(sys.argv[1])
 path = requested_path.resolve() if requested_path.is_symlink() else requested_path
+config_path = Path(sys.argv[2])
+requested_path_key = str(requested_path.absolute())
+
+try:
+    configuration = json.loads(config_path.read_text(encoding="utf-8"))
+except (OSError, TypeError, json.JSONDecodeError):
+    configuration = {}
+created_shell_configs = (
+    configuration.get("created_shell_configs", [])
+    if isinstance(configuration, dict)
+    else []
+)
+created_by_flappy = (
+    isinstance(created_shell_configs, list)
+    and requested_path_key in created_shell_configs
+)
 
 
 def read_text(source):
@@ -175,6 +192,13 @@ if backup.exists():
             backup.unlink()
         else:
             print(backup)
+if (
+    created_by_flappy
+    and changed
+    and current == ""
+    and not requested_path.is_symlink()
+):
+    path.unlink(missing_ok=True)
 PY
 }
 

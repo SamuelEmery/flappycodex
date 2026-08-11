@@ -23,7 +23,14 @@ from typing import Sequence
 FLAPPY_CODEX_SHIM = 1
 COUNTDOWN_SECONDS = 3.0
 IDLE_SECONDS = 0.20
+# Compatibility boundary: Codex does not currently expose this hook-trust
+# identity through a supported wrapper API. Keep the README warning and the
+# pinned hash test in sync with intentional changes here.
 SESSION_HOOK_SOURCE = "/<session-flags>/config.toml"
+INTERNAL_CONFIGURE = "--_flappycodex-internal-configure"
+INTERNAL_HOOK = "--_flappycodex-internal-hook"
+INTERNAL_GAME = "--_flappycodex-internal-game"
+INTERNAL_CODEX = "--_flappycodex-internal-codex"
 
 # A wide terminal scene that scales down cleanly in a short tmux pane.
 REFERENCE_WIDTH = 100
@@ -131,6 +138,16 @@ def write_config(original: str, destination: str, shim: str | None = None) -> in
     path = Path(destination)
     path.parent.mkdir(parents=True, exist_ok=True)
     configuration = {"original_codex": str(Path(original).resolve())}
+    try:
+        existing = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(existing, dict):
+            created_shell_configs = existing.get("created_shell_configs", [])
+            if isinstance(created_shell_configs, list) and all(
+                isinstance(item, str) for item in created_shell_configs
+            ):
+                configuration["created_shell_configs"] = created_shell_configs
+    except (OSError, TypeError, json.JSONDecodeError):
+        pass
     if shim:
         configuration["shim"] = str(Path(shim).resolve())
     path.write_text(
@@ -184,7 +201,7 @@ def hook_command(script: str, socket_path: str, top_pane: str, spec: HookSpec) -
     arguments = [
         sys.executable,
         script,
-        "--internal-hook",
+        INTERNAL_HOOK,
         socket_path,
         spec.state,
         top_pane,
@@ -995,7 +1012,7 @@ def run_inside_tmux(original: str, forwarded: Sequence[str], runtime: Path) -> i
     top_file = runtime / "codex-pane"
     top_file.write_text(f"{top_pane}\n{os.getpid()}\n", encoding="utf-8")
     game_command = shlex.join(
-        [script, "--internal-game", str(socket_path), str(ready_file), str(top_file)]
+        [script, INTERNAL_GAME, str(socket_path), str(ready_file), str(top_file)]
     )
     game_pane: str | None = None
     try:
@@ -1033,7 +1050,7 @@ def run_private_tmux(original: str, forwarded: Sequence[str], runtime: Path) -> 
     top_file = runtime / "codex-pane"
     session = f"flappy-codex-{os.getpid()}"
     game_command = shlex.join(
-        [script, "--internal-game", str(socket_path), str(ready_file), str(top_file)]
+        [script, INTERNAL_GAME, str(socket_path), str(ready_file), str(top_file)]
     )
     try:
         game_pane = require_pane_id(
@@ -1074,7 +1091,7 @@ def run_private_tmux(original: str, forwarded: Sequence[str], runtime: Path) -> 
         command = shlex.join(
             [
                 script,
-                "--internal-codex",
+                INTERNAL_CODEX,
                 str(socket_path),
                 *codex_arguments(
                     original, forwarded, script, str(socket_path), top_pane
@@ -1113,16 +1130,30 @@ def launch_flappy(original: str, forwarded: Sequence[str]) -> int:
         shutil.rmtree(runtime, ignore_errors=True)
 
 
+def internal_argument_error(flag: str, expected: str) -> int:
+    print(f"Flappy Codex: {flag} expects {expected}", file=sys.stderr)
+    return 2
+
+
 def main(arguments: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if arguments is None else arguments)
-    if arguments[:1] == ["--internal-configure"]:
-        shim = arguments[3] if len(arguments) > 3 else None
-        return write_config(arguments[1], arguments[2], shim)
-    if arguments[:1] == ["--internal-hook"]:
+    if arguments[:1] == [INTERNAL_CONFIGURE]:
+        if len(arguments) != 4:
+            return internal_argument_error(INTERNAL_CONFIGURE, "3 arguments")
+        return write_config(arguments[1], arguments[2], arguments[3])
+    if arguments[:1] == [INTERNAL_HOOK]:
+        if len(arguments) != 5:
+            return internal_argument_error(INTERNAL_HOOK, "4 arguments")
         return run_hook(arguments[1], arguments[2], arguments[3], arguments[4])
-    if arguments[:1] == ["--internal-game"]:
+    if arguments[:1] == [INTERNAL_GAME]:
+        if len(arguments) != 4:
+            return internal_argument_error(INTERNAL_GAME, "3 arguments")
         return run_game(arguments[1], arguments[2], arguments[3])
-    if arguments[:1] == ["--internal-codex"]:
+    if arguments[:1] == [INTERNAL_CODEX]:
+        if len(arguments) < 3:
+            return internal_argument_error(
+                INTERNAL_CODEX, "a socket path and command"
+            )
         return supervise_codex(arguments[2:], arguments[1])
 
     original = load_original_codex()

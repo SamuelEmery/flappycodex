@@ -1,4 +1,6 @@
+import contextlib
 import importlib.util
+import io
 from pathlib import Path
 import subprocess
 import sys
@@ -63,6 +65,46 @@ class ArgumentTests(unittest.TestCase):
         )
         self.assertEqual(result.stderr, "")
 
+    def test_old_internal_flag_name_is_forwarded_to_codex(self):
+        with tempfile.TemporaryDirectory() as directory:
+            original = Path(directory) / "original-codex"
+            original.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, sys\n"
+                "print(json.dumps(sys.argv[1:]))\n",
+                encoding="utf-8",
+            )
+            original.chmod(0o755)
+            environment = dict(**flappy.os.environ)
+            environment["FLAPPY_CODEX_ORIGINAL"] = str(original)
+            result = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "--internal-hook", "example"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=environment,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), '["--internal-hook", "example"]')
+        self.assertEqual(result.stderr, "")
+
+    def test_malformed_namespaced_internal_calls_fail_without_tracebacks(self):
+        flags = (
+            flappy.INTERNAL_CONFIGURE,
+            flappy.INTERNAL_HOOK,
+            flappy.INTERNAL_GAME,
+            flappy.INTERNAL_CODEX,
+        )
+        for flag in flags:
+            with self.subTest(flag=flag):
+                error = io.StringIO()
+                with contextlib.redirect_stderr(error):
+                    result = flappy.main([flag])
+                self.assertEqual(result, 2)
+                self.assertIn("expects", error.getvalue())
+                self.assertNotIn("Traceback", error.getvalue())
+
     def test_original_codex_tracks_the_current_path(self):
         with tempfile.TemporaryDirectory() as directory:
             original = Path(directory) / "codex"
@@ -78,6 +120,12 @@ class ArgumentTests(unittest.TestCase):
 
 
 class HookTests(unittest.TestCase):
+    def test_hook_hash_matches_the_pinned_codex_identity_format(self):
+        self.assertEqual(
+            flappy.hook_hash(flappy.HOOKS[0], "/usr/bin/python3 hook.py"),
+            "sha256:18e5ffdb184e4e900526c13f4d54967533c39e13fdd78ed29b01203e58ddf569",
+        )
+
     def test_overrides_are_session_only_trusted_hooks(self):
         arguments = flappy.build_hook_overrides(
             "/opt/flappy codex.py", "/tmp/state.sock", "%7"
@@ -89,6 +137,7 @@ class HookTests(unittest.TestCase):
         self.assertIn("features.hooks=true", joined)
         self.assertIn("trusted_hash", joined)
         self.assertNotIn("bypass", joined)
+        self.assertIn(flappy.INTERNAL_HOOK, joined)
 
     def test_hook_transport_sends_state_without_reading_codex_input(self):
         client = mock.MagicMock()
@@ -333,7 +382,7 @@ class LifecycleTests(unittest.TestCase):
             " ".join(call.args) for call in tmux_output.call_args_list
         )
         self.assertIn("split-window -b -v -l 58%", flattened)
-        self.assertIn("--internal-codex", flattened)
+        self.assertIn(flappy.INTERNAL_CODEX, flattened)
         self.assertIn("--model gpt-5", flattened)
         self.assertNotIn("bind-key", flattened)
         tmux_quiet.assert_any_call("select-pane", "-t", "%2")

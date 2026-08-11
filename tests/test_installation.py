@@ -57,6 +57,17 @@ class InstallationTests(unittest.TestCase):
         )
         return result
 
+    def run_script_without_assertion(self, script, *arguments, environment=None):
+        return subprocess.run(
+            ["bash", str(PROJECT_DIR / script), *arguments],
+            cwd=PROJECT_DIR,
+            env=self.environment if environment is None else environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
     def install(self):
         bashrc = self.home / ".bashrc"
         bashrc.write_text("export PATH=/opt/tools:$PATH\n", encoding="utf-8")
@@ -135,6 +146,89 @@ class InstallationTests(unittest.TestCase):
         self.assertFalse(old_shim.exists())
         self.assertTrue(new_shim.exists())
         self.assertEqual(configuration["shim"], str(new_shim.resolve()))
+
+    def test_exported_codex_function_is_not_recorded_as_the_executable(self):
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                'codex() { :; }; export -f codex; exec bash "$1"',
+                "flappycodex-test",
+                str(PROJECT_DIR / "install.sh"),
+            ],
+            cwd=PROJECT_DIR,
+            env=self.environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"install failed\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}",
+        )
+        configuration = json.loads(
+            (self.config_home / "flappycodex" / "config.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(
+            configuration["original_codex"],
+            str((self.original_bin / "codex").resolve()),
+        )
+
+    def test_occupied_fallback_shim_is_never_overwritten(self):
+        environment = self.environment.copy()
+        environment.pop("FLAPPY_CODEX_BIN_DIR")
+        default_shim = self.home / ".local" / "bin" / "codex"
+        default_shim.parent.mkdir(parents=True)
+        default_shim.write_text("foreign default executable\n", encoding="utf-8")
+        fallback_shim = self.data_home / "flappycodex" / "bin" / "codex"
+        fallback_shim.parent.mkdir(parents=True)
+        foreign_contents = "foreign fallback executable\n"
+        fallback_shim.write_text(foreign_contents, encoding="utf-8")
+        fallback_shim.chmod(0o755)
+
+        result = self.run_script_without_assertion(
+            "install.sh", environment=environment
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("is not a Flappy Codex launcher", result.stderr)
+        self.assertEqual(fallback_shim.read_text(encoding="utf-8"), foreign_contents)
+        self.assertFalse(
+            (self.config_home / "flappycodex" / "config.json").exists()
+        )
+
+    def test_uninstall_removes_a_shell_config_created_by_install(self):
+        bashrc = self.home / ".bashrc"
+        self.assertFalse(bashrc.exists())
+
+        self.run_script("install.sh")
+        self.run_script("install.sh")
+        configuration = json.loads(
+            (self.config_home / "flappycodex" / "config.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertIn(
+            str(bashrc.absolute()), configuration["created_shell_configs"]
+        )
+
+        self.run_script("uninstall.sh")
+
+        self.assertFalse(bashrc.exists())
+
+    def test_uninstall_preserves_a_preexisting_empty_shell_config(self):
+        bashrc = self.home / ".bashrc"
+        bashrc.touch()
+
+        self.run_script("install.sh")
+        self.run_script("uninstall.sh")
+
+        self.assertTrue(bashrc.is_file())
+        self.assertEqual(bashrc.read_text(encoding="utf-8"), "")
 
     def test_upgrade_creates_a_clean_backup_from_an_existing_path_block(self):
         bashrc = self.home / ".bashrc"

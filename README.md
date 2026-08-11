@@ -61,7 +61,8 @@ and normal Codex upgrades therefore continue to work.
 With the default XDG locations, the installer creates:
 
 - `~/.local/share/flappycodex/flappycodex.py` — the installed launcher;
-- `~/.config/flappycodex/config.json` — the original Codex and shim paths;
+- `~/.config/flappycodex/config.json` — executable paths and shell restoration
+  metadata;
 - `~/.local/bin/codex` — the launcher placed on `PATH`; and
 - `~/.config/flappycodex/best-score.json` — created after a best score is saved.
 
@@ -113,8 +114,11 @@ main pane. Temporary, per-session lifecycle hooks tell the game when Codex:
 - ends the session.
 
 Hook configuration is passed only on the `--flappy` command line. The addon does
-not edit `~/.codex/config.toml`, and it calculates hook trust hashes instead of
-bypassing Codex's hook security.
+not edit `~/.codex/config.toml`. It supplies session-scoped trusted identities
+for only the generated Flappy Codex hooks; it does not use Codex's hook-trust
+bypass flag. This identity format is currently a private Codex implementation
+detail rather than a supported wrapper API, so Codex releases may require a
+compatibility update here.
 
 Click the lower pane (or use normal tmux pane navigation) and press Space to
 start. Flap with Space, Up, or a mouse click. Inside an existing tmux session,
