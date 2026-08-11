@@ -7,6 +7,8 @@ An opt-in terminal game for the moments when the Codex CLI is working. Flappy
 Codex wraps an existing Codex installation; it does not contain, patch, compile,
 or rebuild Codex.
 
+![Flappy Codex running beneath an active Codex CLI session](docs/flappy-codex-demo.png)
+
 The game has its own Codex-themed presentation: a flying prompt cursor (`/>_`,
 `=>_`, `\>_`), cyan `[=]` execution gates, static code particles, a stable
 `>_..` prompt rail, and a midnight synth palette. Decorative elements remain
