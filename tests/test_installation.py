@@ -28,7 +28,12 @@ class InstallationTests(unittest.TestCase):
             "XDG_DATA_HOME": str(self.data_home),
             "XDG_CONFIG_HOME": str(self.config_home),
             "FLAPPY_CODEX_BIN_DIR": str(self.bin_dir),
-            "PATH": f"{self.original_bin}:/usr/bin:/bin",
+            # Keep the Python selected by setup-python (and pyenv locally).
+            # macOS still ships an older /usr/bin/python3, so replacing PATH
+            # would test that interpreter instead of the matrix version.
+            "PATH": os.pathsep.join(
+                (str(self.original_bin), os.environ.get("PATH", ""))
+            ),
             "SHELL": "/bin/bash",
         }
 
