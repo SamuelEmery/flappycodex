@@ -127,11 +127,14 @@ def load_original_codex() -> str:
     return original
 
 
-def write_config(original: str, destination: str) -> int:
+def write_config(original: str, destination: str, shim: str | None = None) -> int:
     path = Path(destination)
     path.parent.mkdir(parents=True, exist_ok=True)
+    configuration = {"original_codex": str(Path(original).resolve())}
+    if shim:
+        configuration["shim"] = str(Path(shim).resolve())
     path.write_text(
-        json.dumps({"original_codex": str(Path(original).resolve())}, indent=2) + "\n",
+        json.dumps(configuration, indent=2) + "\n",
         encoding="utf-8",
     )
     return 0
@@ -1113,7 +1116,8 @@ def launch_flappy(original: str, forwarded: Sequence[str]) -> int:
 def main(arguments: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if arguments is None else arguments)
     if arguments[:1] == ["--internal-configure"]:
-        return write_config(arguments[1], arguments[2])
+        shim = arguments[3] if len(arguments) > 3 else None
+        return write_config(arguments[1], arguments[2], shim)
     if arguments[:1] == ["--internal-hook"]:
         return run_hook(arguments[1], arguments[2], arguments[3], arguments[4])
     if arguments[:1] == ["--internal-game"]:

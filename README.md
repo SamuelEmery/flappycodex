@@ -1,81 +1,119 @@
 # Flappy Codex
 
-A lightweight, opt-in terminal companion for the existing Codex CLI. It does
-not contain, patch, compile, or rebuild Codex.
+[![CI](https://github.com/SamuelEmery/flappycodex/actions/workflows/ci.yml/badge.svg)](https://github.com/SamuelEmery/flappycodex/actions/workflows/ci.yml)
+[MIT licensed](LICENSE)
 
-The game has its own Codex-themed terminal presentation: a flying prompt cursor
-(`/>_`, `=>_`, `\>_`), cyan `[=]` execution gates, static code particles, a
-stable `>_..` prompt rail, a midnight synth palette, and a live difficulty
-readout. Decorative elements remain still to avoid terminal shimmer; gates move
-at a synchronized one-cell cadence. Gravity is deliberately severe, gaps start
-narrow and tighten again, and execution speed increases every two points. Best
-score persists between sessions, and the layout adapts cleanly to smaller
-terminals.
+An opt-in terminal game for the moments when the Codex CLI is working. Flappy
+Codex wraps an existing Codex installation; it does not contain, patch, compile,
+or rebuild Codex.
+
+The game has its own Codex-themed presentation: a flying prompt cursor (`/>_`,
+`=>_`, `\>_`), cyan `[=]` execution gates, static code particles, a stable
+`>_..` prompt rail, and a midnight synth palette. Decorative elements remain
+still to avoid terminal shimmer, while gravity, gate spacing, and speed make the
+game deliberately unforgiving. The best score persists between sessions and
+the layout scales down for smaller terminals.
+
+> [!IMPORTANT]
+> Flappy Codex is an unofficial community project. It is not affiliated with or
+> endorsed by OpenAI.
+
+## Requirements
+
+- Linux or macOS
+- Python 3.10 or newer
+- [tmux](https://github.com/tmux/tmux/wiki/Installing)
+- An installed Codex CLI with lifecycle hooks (initially tested with 0.147.0)
+
+Plain `codex` continues to work without tmux. Only `codex --flappy` needs it.
 
 ## Install
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_USERNAME/flappycodex.git
+git clone https://github.com/SamuelEmery/flappycodex.git
 cd flappycodex
 ./install.sh
 ```
 
-Then open a new terminal:
+Open a new terminal, then run:
 
 ```bash
 codex --flappy
 ```
 
-All normal arguments are forwarded:
+Normal Codex arguments are forwarded unchanged:
 
 ```bash
 codex --flappy --model gpt-5 "inspect this project"
 ```
 
-The installer leaves the original Codex files alone and adds one small Python
-launcher earlier on `PATH`. Plain `codex` immediately replaces that launcher
-process with the next real Codex executable on your current `PATH` (using the
-install-time path only as a fallback). Its arguments, stdin, stdout, signals,
-prompts, and rendering stay on the original path. This also lets Node version
-managers and Codex upgrades keep working normally.
+The installer adds a small Python launcher earlier on `PATH` and leaves the
+original Codex files untouched. Plain `codex` immediately replaces the launcher
+process with the next real Codex executable on the current `PATH`, using the
+install-time location only as a fallback. Arguments, standard input/output,
+signals, prompts, and rendering stay on the original path. Node version managers
+and normal Codex upgrades therefore continue to work.
+
+### What the installer changes
+
+With the default XDG locations, the installer creates:
+
+- `~/.local/share/flappycodex/flappycodex.py` — the installed launcher;
+- `~/.config/flappycodex/config.json` — the original Codex and shim paths;
+- `~/.local/bin/codex` — the launcher placed on `PATH`; and
+- `~/.config/flappycodex/best-score.json` — created after a best score is saved.
+
+If `~/.local/bin/codex` is already occupied, the launcher uses its own data
+directory instead. The installer adds a clearly marked `PATH` block to
+`~/.bashrc` or `~/.zshrc` only when necessary. Other shells receive a path to
+add manually. XDG paths and install locations can be overridden with
+`XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `FLAPPY_CODEX_HOME`, and
+`FLAPPY_CODEX_BIN_DIR`.
 
 ## How it works
 
 `--flappy` creates an isolated tmux game pane and runs the original Codex in the
-main pane. Temporary per-session lifecycle hooks signal the game when Codex:
+main pane. Temporary, per-session lifecycle hooks tell the game when Codex:
 
 - starts or finishes work;
 - requests user input;
 - requests permission; or
 - ends the session.
 
-The hook configuration is passed only on the `--flappy` command line. The addon
-does not edit `~/.codex/config.toml`, and it calculates the hook trust hashes
-instead of bypassing Codex's hook security.
+Hook configuration is passed only on the `--flappy` command line. The addon does
+not edit `~/.codex/config.toml`, and it calculates hook trust hashes instead of
+bypassing Codex's hook security.
 
 Click the lower pane (or use normal tmux pane navigation) and press Space to
-start. Flap with Space, Up, or a mouse click.
-Inside an existing tmux session, click-to-focus follows your existing mouse
-setting; the addon does not change it. The addon never installs a global Space
-binding and never reads from Codex's pane. When a supported Codex prompt hook
-fires, focus returns to the Codex pane before the prompt is shown. After the
-answer is accepted, the game displays a 3-second countdown.
+start. Flap with Space, Up, or a mouse click. Inside an existing tmux session,
+click-to-focus follows the existing mouse setting; the addon does not change it.
+It never installs a global Space binding and never reads from the Codex pane.
+When a supported prompt hook fires, focus returns to Codex before the prompt is
+shown. After an answer is accepted, the game displays a three-second countdown.
 
-For permission prompts, Codex currently exposes the pre-prompt hook and the
-post-tool hook. The game therefore remains safely paused until that approved
-tool finishes. If permission is denied or aborted, it remains paused until the
-next lifecycle event (normally Codex becoming idle). This favors input safety
-over guessing from terminal output.
-
-Requirements: Linux or macOS, Python 3.10+, tmux, and a Codex CLI with
-lifecycle hooks (tested with Codex 0.147.0). Without tmux, plain `codex` still
-works and `codex --flappy` prints a clear error.
+For permission prompts, Codex exposes a pre-prompt hook and a post-tool hook.
+The game remains paused until the approved tool finishes. If permission is
+denied or aborted, it remains paused until the next lifecycle event, normally
+Codex becoming idle. This favors input safety over guessing from terminal
+output.
 
 ## Controls
 
 - Space / Up / click: launch, boost, or reboot after a failed run
 - R: return to the start screen
-- Esc/Q: close only the game pane
+- Esc / Q: close only the game pane
+
+## Update
+
+From the cloned repository:
+
+```bash
+git pull --ff-only
+./install.sh
+```
+
+Running the installer again updates the launcher without resetting the best
+score.
 
 ## Uninstall
 
@@ -83,4 +121,25 @@ works and `codex --flappy` prints a clear error.
 ./uninstall.sh
 ```
 
+This removes the launcher, managed shell `PATH` block, configuration, and saved
+score. To keep the score for a future installation:
+
+```bash
+./uninstall.sh --keep-score
+```
+
 The original Codex installation is never removed.
+
+## Contributing
+
+Bug reports and focused pull requests are welcome. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the development commands and submission
+guidelines. Please report security problems using [SECURITY.md](SECURITY.md),
+not a public issue.
+
+## License
+
+Flappy Codex is released under the [MIT License](LICENSE).
+
+The original gameplay experiment was inspired by
+[ASCII Bird](https://www.asciibird.com/).

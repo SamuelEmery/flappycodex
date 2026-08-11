@@ -1,0 +1,71 @@
+name: Bug report
+description: Report a reproducible problem with Flappy Codex
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Remove secrets, prompts, private file contents,
+        and unrelated transcript history before submitting.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Run ...
+        2. Press ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Ubuntu 24.04 or macOS 15
+    validations:
+      required: true
+
+  - type: input
+    id: terminal
+    attributes:
+      label: Shell and terminal
+      placeholder: zsh 5.9 in Terminal.app
+    validations:
+      required: true
+
+  - type: input
+    id: versions
+    attributes:
+      label: Python, tmux, and Codex versions
+      placeholder: Python 3.12.3; tmux 3.4; codex-cli 0.x.y
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized output
+      description: Add only the smallest relevant excerpt. Do not paste a full transcript.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I reproduced this on the latest `main` branch.
+          required: true
+        - label: I removed secrets and private information.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
