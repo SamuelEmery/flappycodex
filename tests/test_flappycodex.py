@@ -185,12 +185,69 @@ class GameStateTests(unittest.TestCase):
         game.tick(0.1, now=5.46)
         self.assertEqual(game.phase, "working")
 
-    def test_idle_and_interrupt_pause(self):
+    def test_idle_offers_to_continue_an_active_run_without_resetting_it(self):
         game = flappy.FlappyGame(now=0)
         game.set_state("working", now=0)
+        game.flap()
+        game.bird_y = 7.0
+        game.velocity = 2.0
+        game.score = 4
+        saved_pipes = [pipe.copy() for pipe in game.pipes]
+
         game.set_state("idle", now=1)
         self.assertEqual(game.phase, "idle")
         game.set_state("working", now=2)
+
+        self.assertEqual(game.phase, "resume")
+        self.assertEqual(game.bird_y, 7.0)
+        self.assertEqual(game.velocity, 2.0)
+        self.assertEqual(game.score, 4)
+        self.assertEqual(game.pipes, saved_pipes)
+
+    def test_continue_counts_down_then_resumes_the_saved_run(self):
+        game = flappy.FlappyGame(now=0)
+        game.set_state("working", now=0)
+        game.flap()
+        saved_pipe_x = game.pipes[0]["x"]
+        game.set_state("idle", now=1)
+        game.set_state("working", now=2)
+
+        game.continue_run(now=4)
+
+        self.assertEqual(game.phase, "countdown")
+        self.assertEqual(game.deadline, 7.0)
+        self.assertEqual(game.pipes[0]["x"], saved_pipe_x)
+        game.tick(0, now=6.99)
+        self.assertEqual(game.phase, "countdown")
+        game.tick(0, now=7.0)
+        self.assertEqual(game.phase, "go")
+        game.tick(0, now=7.46)
+        self.assertEqual(game.phase, "working")
+
+    def test_restart_from_resume_choice_discards_the_saved_run(self):
+        game = flappy.FlappyGame(now=0)
+        game.set_state("working", now=0)
+        game.flap()
+        game.score = 4
+        game.set_state("idle", now=1)
+        game.set_state("working", now=2)
+
+        game.restart()
+
+        self.assertEqual(game.phase, "ready")
+        self.assertEqual(game.score, 0)
+        self.assertEqual(game.pipes, [])
+
+    def test_idle_before_a_run_still_returns_to_the_start_screen(self):
+        game = flappy.FlappyGame(now=0)
+        game.set_state("working", now=0)
+        game.set_state("idle", now=1)
+        game.set_state("working", now=2)
+        self.assertEqual(game.phase, "ready")
+
+    def test_interrupt_pause_is_unchanged(self):
+        game = flappy.FlappyGame(now=0)
+        game.set_state("working", now=0)
         game.set_state("interrupted", now=3)
         self.assertEqual(game.phase, "interrupted")
 
@@ -273,6 +330,27 @@ class GameStateTests(unittest.TestCase):
         self.assertEqual(sky[top_cap - 1][50].character, "|")
         self.assertEqual(sky[bottom_cap + 1][50].character, "|")
         self.assertEqual(game.ground()[:8], ">_..>_..")
+
+    def test_c_key_continues_a_saved_run(self):
+        screen = mock.Mock()
+        screen.getch.side_effect = [ord("c"), -1]
+        frontend = flappy.CursesGame(screen, mock.Mock(), Path("/missing"))
+        frontend.game = mock.Mock()
+
+        frontend.read_keys()
+
+        frontend.game.continue_run.assert_called_once_with()
+
+    def test_countdown_number_is_drawn_in_the_center(self):
+        frontend = flappy.CursesGame(mock.Mock(), mock.Mock(), Path("/missing"))
+        frontend.game.phase = "countdown"
+        frontend.game.height = 27
+        frontend.game.deadline = 8.0
+
+        with mock.patch.object(frontend, "centered") as centered:
+            frontend.draw_overlay(now=5.2, sky_top=2, field_left=0)
+
+        centered.assert_any_call(15, "3", frontend.styles["agent"])
 
 
 class LifecycleTests(unittest.TestCase):

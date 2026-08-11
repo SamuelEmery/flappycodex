@@ -126,6 +126,9 @@ click-to-focus follows the existing mouse setting; the addon does not change it.
 It never installs a global Space binding and never reads from the Codex pane.
 When a supported prompt hook fires, focus returns to Codex before the prompt is
 shown. After an answer is accepted, the game displays a three-second countdown.
+When Codex finishes a task, the current run stays frozen. If another task starts,
+press `C` to continue that run after a centered three-second countdown, or `R`
+to discard it and return to the start screen.
 
 For permission prompts, Codex exposes a pre-prompt hook and a post-tool hook.
 The game remains paused until the approved tool finishes. If permission is
@@ -136,6 +139,7 @@ output.
 ## Controls
 
 - Space / Up / click: launch, boost, or reboot after a failed run
+- C: continue a run saved when the previous Codex task finished
 - R: return to the start screen
 - Esc / Q: close only the game pane
 

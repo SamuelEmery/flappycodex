@@ -345,6 +345,13 @@ class FlappyGame:
         self.reset()
         self.phase = "ready"
 
+    def continue_run(self, now: float | None = None) -> None:
+        if self.codex_state != "working" or self.phase != "resume":
+            return
+        now = time.monotonic() if now is None else now
+        self.phase = "countdown"
+        self.deadline = now + COUNTDOWN_SECONDS
+
     def set_state(self, state: str, now: float | None = None) -> None:
         now = time.monotonic() if now is None else now
         if state == "exit":
@@ -359,14 +366,21 @@ class FlappyGame:
                 else:
                     self.phase = self.resume_phase
             elif self.phase == "idle":
-                self.reset()
-                self.phase = "ready"
+                if self.resume_phase in {"working", "go", "countdown", "resume"}:
+                    self.phase = "resume"
+                else:
+                    self.reset()
+                    self.phase = "ready"
         elif state in {"waiting", "interrupted"}:
             if self.phase not in {"waiting", "interrupted"}:
                 self.resume_phase = self.phase
             self.phase = state
         elif state == "idle":
-            self.resume_phase = self.phase
+            # A Stop hook can follow a waiting/interrupted state. Preserve the
+            # playable phase saved before that pause instead of replacing it
+            # with the pause itself.
+            if self.phase not in {"waiting", "interrupted"}:
+                self.resume_phase = self.phase
             self.phase = "idle"
 
     def flap(self) -> None:
@@ -493,6 +507,7 @@ class FlappyGame:
             "idle": "CODEX IDLE — GAME PAUSED",
             "interrupted": "CODEX INTERRUPTED — GAME PAUSED",
             "ready": "AGENT STANDBY — PRESS SPACE TO LAUNCH",
+            "resume": "C CONTINUE — R RESTART",
             "waiting": "CODEX NEEDS YOU — GAME PAUSED",
             "working": "SPACE / UP / CLICK — KEEP THE AGENT AIRBORNE",
         }.get(self.phase, self.phase.upper())
@@ -627,6 +642,8 @@ class CursesGame:
                     self.game.flap()
             elif key in (27, ord("q"), ord("Q")):
                 self.game.quit = True
+            elif key in (ord("c"), ord("C")):
+                self.game.continue_run()
             elif key in (ord("r"), ord("R")) and self.game.codex_state == "working":
                 self.game.restart()
 
@@ -858,10 +875,18 @@ class CursesGame:
             self.draw_unboxed_overlay(
                 sky_top, "CODEX INTERRUPTED", "game paused", "danger"
             )
+        elif self.game.phase == "resume":
+            self.draw_unboxed_overlay(
+                sky_top, "RUN PAUSED", "[C] CONTINUE  //  [R] RESTART"
+            )
         elif self.game.phase == "countdown":
             remaining = max(1, math.ceil(self.game.deadline - now))
-            self.draw_unboxed_overlay(
-                sky_top, "SYNCING CONTEXT", f"resuming in {remaining}"
+            middle = sky_top + self.game.height // 2
+            self.centered(middle - 2, "CONTINUING", self.styles["accent"])
+            self.centered(
+                middle,
+                str(remaining),
+                self.styles["agent"],
             )
         elif self.game.phase == "go":
             self.centered(
