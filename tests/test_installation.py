@@ -109,6 +109,14 @@ class InstallationTests(unittest.TestCase):
             json.loads(score_file.read_text(encoding="utf-8")), {"best": 7}
         )
 
+    def test_uninstall_explains_the_parent_shell_command_cache(self):
+        self.install()
+
+        result = self.run_script("uninstall.sh")
+
+        self.assertIn("hash -r", result.stdout)
+        self.assertIn("rehash", result.stdout)
+
     def test_reinstall_removes_a_previous_shim_location(self):
         self.install()
         old_shim = self.bin_dir / "codex"
@@ -127,6 +135,30 @@ class InstallationTests(unittest.TestCase):
         self.assertFalse(old_shim.exists())
         self.assertTrue(new_shim.exists())
         self.assertEqual(configuration["shim"], str(new_shim.resolve()))
+
+    def test_upgrade_creates_a_clean_backup_from_an_existing_path_block(self):
+        bashrc = self.home / ".bashrc"
+        bashrc.write_text(
+            "export EDITOR=vim\n"
+            "\n"
+            "# >>> Flappy Codex PATH >>>\n"
+            "export PATH=/old/flappy/bin:$PATH\n"
+            "# <<< Flappy Codex PATH <<<\n",
+            encoding="utf-8",
+        )
+
+        self.run_script("install.sh")
+
+        backup = bashrc.with_name(".bashrc.flappycodex.bak")
+        self.assertEqual(backup.read_text(encoding="utf-8"), "export EDITOR=vim\n")
+        contents = bashrc.read_text(encoding="utf-8")
+        self.assertNotIn("/old/flappy/bin", contents)
+        self.assertIn(str(self.bin_dir), contents)
+
+        self.run_script("uninstall.sh")
+
+        self.assertFalse(backup.exists())
+        self.assertEqual(bashrc.read_text(encoding="utf-8"), "export EDITOR=vim\n")
 
     def test_uninstall_retains_backup_when_shell_config_changed(self):
         bashrc = self.install()
@@ -205,6 +237,7 @@ class InstallationTests(unittest.TestCase):
 
         self.run_script("uninstall.sh")
 
+        self.assertFalse(bashrc.with_name(".bashrc.flappycodex.bak").exists())
         self.assertEqual(
             bashrc.read_text(encoding="utf-8"),
             "export EDITOR=vim\nalias codex-info='codex --version'\n",

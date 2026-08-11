@@ -117,36 +117,57 @@ def create_backup(source, destination):
 
 path.parent.mkdir(parents=True, exist_ok=True)
 backup = path.with_name(path.name + ".flappycodex.bak")
+
+
+def remove_managed_blocks(contents):
+    lines = contents.splitlines()
+    cleaned = []
+    changed = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line == "# >>> Flappy Codex PATH >>>":
+            try:
+                end = lines.index("# <<< Flappy Codex PATH <<<", i + 1)
+            except ValueError:
+                cleaned.extend(lines[i:])
+                break
+            if cleaned and not cleaned[-1]:
+                cleaned.pop()
+            i = end + 1
+            changed = True
+            continue
+        if line.startswith("# Flappy Codex PATH (") and line.endswith(")"):
+            if cleaned and not cleaned[-1]:
+                cleaned.pop()
+            i += 1
+            if i < len(lines) and lines[i].startswith("export PATH="):
+                i += 1
+            changed = True
+            continue
+        cleaned.append(line)
+        i += 1
+    while cleaned and not cleaned[-1]:
+        cleaned.pop()
+    return "\n".join(cleaned) + ("\n" if cleaned else ""), changed
+
+
+original = read_text(path) if path.exists() else ""
+baseline, had_managed_block = remove_managed_blocks(original)
 if path.exists() and not backup.exists():
     create_backup(path, backup)
+    if had_managed_block:
+        # Upgrading an older installation: store the pre-Flappy form rather
+        # than backing up the already-managed PATH block.
+        atomic_write(backup, baseline)
+elif backup.exists():
+    repaired_backup, backup_had_managed_block = remove_managed_blocks(
+        read_text(backup)
+    )
+    if backup_had_managed_block:
+        atomic_write(backup, repaired_backup)
 
-lines = read_text(path).splitlines() if path.exists() else []
-cleaned = []
-i = 0
-while i < len(lines):
-    line = lines[i]
-    if line == "# >>> Flappy Codex PATH >>>":
-        try:
-            end = lines.index("# <<< Flappy Codex PATH <<<", i + 1)
-        except ValueError:
-            cleaned.extend(lines[i:])
-            break
-        if cleaned and not cleaned[-1]:
-            cleaned.pop()
-        i = end + 1
-        continue
-    if line.startswith("# Flappy Codex PATH (") and line.endswith(")"):
-        if cleaned and not cleaned[-1]:
-            cleaned.pop()
-        i += 1
-        if i < len(lines) and lines[i].startswith("export PATH="):
-            i += 1
-        continue
-    cleaned.append(line)
-    i += 1
-
-while cleaned and not cleaned[-1]:
-    cleaned.pop()
+cleaned = baseline.splitlines()
 cleaned.extend(
     [
         "",

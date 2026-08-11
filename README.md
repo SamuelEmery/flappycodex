@@ -160,6 +160,10 @@ score. To keep the score for a future installation:
 ./uninstall.sh --keep-score
 ```
 
+Shells can cache the launcher's old location. After uninstalling, open a new
+terminal or refresh the current shell before running Codex again: use `hash -r`
+in Bash or `rehash` in Zsh.
+
 The original Codex installation is never removed.
 
 ## Contributing

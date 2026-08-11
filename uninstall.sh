@@ -122,48 +122,59 @@ def create_backup(source, destination):
         temporary.unlink(missing_ok=True)
 
 
-original = read_text(path)
-lines = original.splitlines()
-cleaned = []
-changed = False
-i = 0
-while i < len(lines):
-    line = lines[i]
-    if line == "# >>> Flappy Codex PATH >>>":
-        try:
-            end = lines.index("# <<< Flappy Codex PATH <<<", i + 1)
-        except ValueError:
-            cleaned.extend(lines[i:])
-            break
-        if cleaned and not cleaned[-1]:
-            cleaned.pop()
-        i = end + 1
-        changed = True
-        continue
-    if line.startswith("# Flappy Codex PATH (") and line.endswith(")"):
-        if cleaned and not cleaned[-1]:
-            cleaned.pop()
-        i += 1
-        if i < len(lines) and lines[i].startswith("export PATH="):
+def remove_managed_blocks(contents):
+    lines = contents.splitlines()
+    cleaned = []
+    changed = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line == "# >>> Flappy Codex PATH >>>":
+            try:
+                end = lines.index("# <<< Flappy Codex PATH <<<", i + 1)
+            except ValueError:
+                cleaned.extend(lines[i:])
+                break
+            if cleaned and not cleaned[-1]:
+                cleaned.pop()
+            i = end + 1
+            changed = True
+            continue
+        if line.startswith("# Flappy Codex PATH (") and line.endswith(")"):
+            if cleaned and not cleaned[-1]:
+                cleaned.pop()
             i += 1
-        changed = True
-        continue
-    cleaned.append(line)
-    i += 1
+            if i < len(lines) and lines[i].startswith("export PATH="):
+                i += 1
+            changed = True
+            continue
+        cleaned.append(line)
+        i += 1
+    return "\n".join(cleaned) + ("\n" if cleaned else ""), changed
 
-updated = "\n".join(cleaned) + ("\n" if cleaned else "")
+
+original = read_text(path)
+updated, changed = remove_managed_blocks(original)
 backup = path.with_name(path.name + ".flappycodex.bak")
+created_backup = False
 if changed and updated != original:
     if not backup.exists():
         create_backup(path, backup)
+        created_backup = True
     atomic_write(path, updated)
 
 current = updated if changed else original
 if backup.exists():
-    if current == read_text(backup):
+    if created_backup:
         backup.unlink()
     else:
-        print(backup)
+        backup_contents, repaired_backup = remove_managed_blocks(read_text(backup))
+        if repaired_backup:
+            atomic_write(backup, backup_contents)
+        if current == backup_contents:
+            backup.unlink()
+        else:
+            print(backup)
 PY
 }
 
@@ -182,6 +193,8 @@ printf 'Flappy Codex removed. Your original Codex installation was not changed.\
 if $keep_score; then
     printf 'Saved best score kept at %s.\n' "$score_file"
 fi
+printf 'Open a new terminal before using codex again, or refresh this shell'
+printf ' (Bash: hash -r; Zsh: rehash).\n'
 for backup in "$bash_backup" "$zsh_backup"; do
     if [ -n "$backup" ]; then
         printf 'Shell backup retained because your config changed: %s\n' "$backup"
